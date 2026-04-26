@@ -1,4 +1,4 @@
-# longchat-local
+# mlx-longchat-local
 
 Local desktop chat for Apple Silicon, using a JANG / MLX vision-language model backend with structured long-context memory.
 ![Example](Example.png)
