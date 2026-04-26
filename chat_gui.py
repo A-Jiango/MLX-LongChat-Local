@@ -69,6 +69,7 @@ INLINE_MATH_HEIGHT_FACTOR = 1.04
 INLINE_TALL_MATH_HEIGHT_FACTOR = 1.72
 BLOCK_MATH_TARGET_HEIGHT_FACTOR = 2.6
 BLOCK_MATH_MAX_SCALE = 2.8
+MATRIX_BLOCK_MATH_SCALE_MULTIPLIER = 2.0
 AUTO_SCROLL_BOTTOM_THRESHOLD = 24
 MAX_ATTACHMENT_TEXT_CHARS = 60000
 SUPPORTED_DOCUMENT_EXTENSIONS = {".md", ".txt", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".html"}
@@ -703,11 +704,28 @@ class InlineCodeTokenWidget(TextTokenWidget):
         super().__init__(text, "assistantCodeToken")
 
 
+def _is_matrix_like_latex(source: str) -> bool:
+    return bool(
+        re.search(
+            r"\\begin\s*\{\s*(?:[pbBvV]?matrix|smallmatrix|array)\s*\}",
+            source,
+        )
+        or re.search(r"\\matrix\s*\{", source)
+    )
+
+
 class SvgArtifactWidget(QWidget):
-    def __init__(self, data: bytes, display: str, inline_height_factor: float = INLINE_MATH_HEIGHT_FACTOR) -> None:
+    def __init__(
+        self,
+        data: bytes,
+        display: str,
+        inline_height_factor: float = INLINE_MATH_HEIGHT_FACTOR,
+        block_scale_multiplier: float = 1.0,
+    ) -> None:
         super().__init__()
         self._display = display
         self._inline_height_factor = inline_height_factor
+        self._block_scale_multiplier = max(1.0, block_scale_multiplier)
         self._renderer = QSvgRenderer(QByteArray(data), self) if QSvgRenderer is not None else None
         default_size = self._renderer.defaultSize() if self._renderer is not None else QSize()
         if not default_size.isValid() or default_size.width() <= 0 or default_size.height() <= 0:
@@ -741,7 +759,12 @@ class SvgArtifactWidget(QWidget):
         width_scale = width_limit / max(1, source.width())
         desired_height = max(40, int(self.fontMetrics().height() * BLOCK_MATH_TARGET_HEIGHT_FACTOR))
         desired_scale = max(1.0, desired_height / max(1, source.height()))
-        scale = min(BLOCK_MATH_MAX_SCALE, width_scale, desired_scale)
+        base_scale = min(BLOCK_MATH_MAX_SCALE, width_scale, desired_scale)
+        scale = min(
+            BLOCK_MATH_MAX_SCALE * self._block_scale_multiplier,
+            width_scale,
+            base_scale * self._block_scale_multiplier,
+        )
         return QSize(max(1, int(source.width() * scale)), max(1, int(source.height() * scale)))
 
     def _target_rect(self) -> QRectF:
@@ -762,10 +785,17 @@ class SvgArtifactWidget(QWidget):
 
 
 class RasterArtifactWidget(QWidget):
-    def __init__(self, data: bytes, display: str, inline_height_factor: float = INLINE_MATH_HEIGHT_FACTOR) -> None:
+    def __init__(
+        self,
+        data: bytes,
+        display: str,
+        inline_height_factor: float = INLINE_MATH_HEIGHT_FACTOR,
+        block_scale_multiplier: float = 1.0,
+    ) -> None:
         super().__init__()
         self._display = display
         self._inline_height_factor = inline_height_factor
+        self._block_scale_multiplier = max(1.0, block_scale_multiplier)
         self._pixmap = QPixmap()
         self._pixmap.loadFromData(data)
         if self._pixmap.isNull():
@@ -801,7 +831,12 @@ class RasterArtifactWidget(QWidget):
         width_scale = width_limit / max(1, source.width())
         desired_height = max(40, int(self.fontMetrics().height() * BLOCK_MATH_TARGET_HEIGHT_FACTOR))
         desired_scale = max(1.0, desired_height / max(1, source.height()))
-        scale = min(BLOCK_MATH_MAX_SCALE, width_scale, desired_scale)
+        base_scale = min(BLOCK_MATH_MAX_SCALE, width_scale, desired_scale)
+        scale = min(
+            BLOCK_MATH_MAX_SCALE * self._block_scale_multiplier,
+            width_scale,
+            base_scale * self._block_scale_multiplier,
+        )
         return QSize(max(1, int(source.width() * scale)), max(1, int(source.height() * scale)))
 
     def _target_rect(self) -> QRect:
@@ -831,6 +866,11 @@ class MathDisplayWidget(QWidget):
         super().__init__()
         self.display = display
         self._inline_height_factor = inline_height_factor
+        self._block_scale_multiplier = (
+            MATRIX_BLOCK_MATH_SCALE_MULTIPLIER
+            if display == "block" and _is_matrix_like_latex(raw_source)
+            else 1.0
+        )
         self._artifact_widget: QWidget | None = None
         self._stack = QStackedLayout(self)
         self._stack.setContentsMargins(0, 0, 0, 0)
@@ -885,9 +925,19 @@ class MathDisplayWidget(QWidget):
             self.updateGeometry()
             return
         if artifact.format == "svg" and QSvgRenderer is not None:
-            widget = SvgArtifactWidget(artifact.data, self.display, inline_height_factor=self._inline_height_factor)
+            widget = SvgArtifactWidget(
+                artifact.data,
+                self.display,
+                inline_height_factor=self._inline_height_factor,
+                block_scale_multiplier=self._block_scale_multiplier,
+            )
         else:
-            widget = RasterArtifactWidget(artifact.data, self.display, inline_height_factor=self._inline_height_factor)
+            widget = RasterArtifactWidget(
+                artifact.data,
+                self.display,
+                inline_height_factor=self._inline_height_factor,
+                block_scale_multiplier=self._block_scale_multiplier,
+            )
         if self._artifact_widget is not None:
             self._stack.removeWidget(self._artifact_widget)
             self._artifact_widget.deleteLater()
