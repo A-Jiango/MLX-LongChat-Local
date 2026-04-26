@@ -1,3 +1,5 @@
+![Uploading Cover.png…]()
+
 # longchat-local
 
 Local desktop chat for Apple Silicon, using a JANG / MLX vision-language model backend with structured long-context memory.
